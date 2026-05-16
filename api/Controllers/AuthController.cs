@@ -7,11 +7,14 @@ using Microsoft.IdentityModel.Tokens;
 
 [ApiController]
 [Route("api/auth")]
-public class AuthController(AppDbContext db, RsaKeyService rsaKeys) : ControllerBase
+public class AuthController(AppDbContext db, RsaKeyService rsaKeys, IConfiguration config) : ControllerBase
 {
     [HttpPost("register")]
     public async Task<IActionResult> Register(RegisterRequest req)
     {
+        if (req.RedirectUrl is not null && !IsAllowedRedirect(req.RedirectUrl))
+            return BadRequest(new { message = "Redirect URL not allowed." });
+
         if (await db.Users.AnyAsync(u => u.Email == req.Email.ToLowerInvariant()))
             return Conflict(new { message = "Email already in use." });
 
@@ -25,18 +28,31 @@ public class AuthController(AppDbContext db, RsaKeyService rsaKeys) : Controller
         db.Users.Add(user);
         await db.SaveChangesAsync();
 
-        return Ok(new { token = CreateToken(user), user = ToDto(user) });
+        return Ok(new { token = CreateToken(user), user = ToDto(user), redirectUrl = req.RedirectUrl });
     }
 
     [HttpPost("login")]
     public async Task<IActionResult> Login(LoginRequest req)
     {
+        if (req.RedirectUrl is not null && !IsAllowedRedirect(req.RedirectUrl))
+            return BadRequest(new { message = "Redirect URL not allowed." });
+
         var user = await db.Users.SingleOrDefaultAsync(u => u.Email == req.Email.ToLowerInvariant());
 
         if (user is null || !VerifyPassword(req.Password, user.PasswordHash))
             return Unauthorized();
 
-        return Ok(new { token = CreateToken(user), user = ToDto(user) });
+        return Ok(new { token = CreateToken(user), user = ToDto(user), redirectUrl = req.RedirectUrl });
+    }
+
+    private bool IsAllowedRedirect(string redirectUrl)
+    {
+        if (!Uri.TryCreate(redirectUrl, UriKind.Absolute, out var uri))
+            return false;
+
+        var origin = $"{uri.Scheme}://{uri.Host}:{uri.Port}";
+        var allowed = config.GetSection("AllowedRedirectOrigins").Get<string[]>() ?? [];
+        return allowed.Contains(origin);
     }
 
     private string CreateToken(User user)
@@ -72,5 +88,5 @@ public class AuthController(AppDbContext db, RsaKeyService rsaKeys) : Controller
     private static object ToDto(User user) => new { user.Id, user.Name, user.Email };
 }
 
-public record RegisterRequest(string Name, string Email, string Password);
-public record LoginRequest(string Email, string Password);
+public record RegisterRequest(string Name, string Email, string Password, string? RedirectUrl);
+public record LoginRequest(string Email, string Password, string? RedirectUrl);

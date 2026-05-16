@@ -1,9 +1,23 @@
 import { useState } from 'react'
-import './App.css'
+import {
+  Alert,
+  Avatar,
+  Box,
+  Button,
+  CircularProgress,
+  Container,
+  Link,
+  Paper,
+  TextField,
+  Typography,
+} from '@mui/material'
+import LockOutlinedIcon from '@mui/icons-material/LockOutlined'
 
 interface AuthUser { id: string; name: string; email: string }
 
 function App() {
+  const redirectUrl = new URLSearchParams(window.location.search).get('redirect')
+
   const [mode, setMode] = useState<'login' | 'signup'>('login')
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
@@ -19,7 +33,9 @@ function App() {
 
     try {
       const endpoint = mode === 'login' ? '/api/auth/login' : '/api/auth/register'
-      const body = mode === 'login' ? { email, password } : { name, email, password }
+      const body = mode === 'login'
+        ? { email, password, redirectUrl }
+        : { name, email, password, redirectUrl }
 
       const res = await fetch(endpoint, {
         method: 'POST',
@@ -27,11 +43,18 @@ function App() {
         body: JSON.stringify(body),
       })
 
+      if (res.status === 400) { setError('Sign in is not allowed from this application.'); return }
       if (res.status === 401) { setError('Invalid email or password.'); return }
       if (res.status === 409) { setError('An account with that email already exists.'); return }
       if (!res.ok) { setError('Something went wrong. Please try again.'); return }
 
       const data = await res.json()
+
+      if (data.redirectUrl) {
+        window.location.href = `${data.redirectUrl}?token=${encodeURIComponent(data.token)}`
+        return
+      }
+
       localStorage.setItem('token', data.token)
       setUser(data.user)
     } catch {
@@ -49,96 +72,87 @@ function App() {
 
   if (user) {
     return (
-      <div className="auth-wrapper">
-        <div className="auth-card">
-          <div className="auth-header">
-            <h1>Nexus</h1>
-            <p>Signed in as <strong>{user.email}</strong></p>
-          </div>
-          <div className="welcome">
-            <span className="avatar">{user.name[0].toUpperCase()}</span>
-            <p className="welcome-name">{user.name}</p>
-          </div>
-          <button className="submit-btn" onClick={handleSignOut}>Sign out</button>
-        </div>
-      </div>
+      <Container maxWidth="xs">
+        <Box sx={{ minHeight: '100svh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+          <Paper elevation={3} sx={{ p: 4, width: '100%', textAlign: 'center' }}>
+            <Avatar sx={{ width: 64, height: 64, fontSize: 28, bgcolor: 'primary.main', mx: 'auto', mb: 2 }}>
+              {user.name[0].toUpperCase()}
+            </Avatar>
+            <Typography variant="h6">{user.name}</Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>{user.email}</Typography>
+            <Button variant="outlined" fullWidth onClick={handleSignOut}>Sign out</Button>
+          </Paper>
+        </Box>
+      </Container>
     )
   }
 
   return (
-    <div className="auth-wrapper">
-      <div className="auth-card">
-        <div className="auth-header">
-          <h1>Nexus</h1>
-          <p>{mode === 'login' ? 'Sign in to your account' : 'Create your account'}</p>
-        </div>
+    <Container maxWidth="xs">
+      <Box sx={{ minHeight: '100svh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+        <Avatar sx={{ mb: 1, bgcolor: 'primary.main' }}>
+          <LockOutlinedIcon />
+        </Avatar>
+        <Typography component="h1" variant="h5" sx={{ mb: 3 }}>
+          {mode === 'login' ? 'Sign in' : 'Create account'}
+        </Typography>
 
-        <form className="auth-form" onSubmit={handleSubmit}>
-          {mode === 'signup' && (
-            <div className="field">
-              <label htmlFor="name">Full name</label>
-              <input
-                id="name"
-                type="text"
-                placeholder="Jane Smith"
+        <Paper elevation={3} sx={{ p: 4, width: '100%' }}>
+          <Box component="form" onSubmit={handleSubmit} sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+            {mode === 'signup' && (
+              <TextField
+                label="Full name"
                 value={name}
                 onChange={e => setName(e.target.value)}
                 autoComplete="name"
                 required
+                fullWidth
               />
-            </div>
-          )}
-
-          <div className="field">
-            <label htmlFor="email">Email</label>
-            <input
-              id="email"
+            )}
+            <TextField
+              label="Email"
               type="email"
-              placeholder="you@example.com"
               value={email}
               onChange={e => setEmail(e.target.value)}
               autoComplete="email"
               required
+              fullWidth
             />
-          </div>
-
-          <div className="field">
-            <label htmlFor="password">Password</label>
-            <input
-              id="password"
+            <TextField
+              label="Password"
               type="password"
-              placeholder="••••••••"
               value={password}
               onChange={e => setPassword(e.target.value)}
               autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
               required
+              fullWidth
             />
-          </div>
 
-          {mode === 'login' && (
-            <a href="#" className="forgot-link">Forgot password?</a>
-          )}
+            {mode === 'login' && (
+              <Link href="#" variant="body2" sx={{ alignSelf: 'flex-end' }}>Forgot password?</Link>
+            )}
 
-          {error && <p className="error">{error}</p>}
+            {error && <Alert severity="error">{error}</Alert>}
 
-          <button type="submit" className="submit-btn" disabled={loading}>
-            {loading ? 'Please wait…' : mode === 'login' ? 'Sign in' : 'Create account'}
-          </button>
-        </form>
+            <Button type="submit" variant="contained" fullWidth disabled={loading} sx={{ mt: 1 }}>
+              {loading ? <CircularProgress size={24} color="inherit" /> : mode === 'login' ? 'Sign in' : 'Create account'}
+            </Button>
+          </Box>
+        </Paper>
 
-        <div className="auth-footer">
+        <Typography variant="body2" sx={{ mt: 2 }}>
           {mode === 'login' ? (
             <>Don't have an account?{' '}
-              <button className="switch-btn" onClick={() => { setMode('signup'); setError('') }}>Sign up</button>
+              <Link component="button" variant="body2" onClick={() => { setMode('signup'); setError('') }}>Sign up</Link>
             </>
           ) : (
             <>Already have an account?{' '}
-              <button className="switch-btn" onClick={() => { setMode('login'); setError('') }}>Sign in</button>
+              <Link component="button" variant="body2" onClick={() => { setMode('login'); setError('') }}>Sign in</Link>
             </>
           )}
-        </div>
-      </div>
-    </div>
+        </Typography>
+      </Box>
+    </Container>
   )
 }
 
