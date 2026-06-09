@@ -7,13 +7,25 @@ using Microsoft.IdentityModel.Tokens;
 
 [ApiController]
 [Route("api/auth")]
-public class AuthController(AppDbContext db, RsaKeyService rsaKeys, IConfiguration config) : ControllerBase
+public class AuthController(
+    AppDbContext db, 
+    RsaKeyService rsaKeys, 
+    IConfiguration config, 
+    AuthorizationCodeStore codeStore) 
+        : ControllerBase
 {
     [HttpPost("register")]
     public async Task<IActionResult> Register(RegisterRequest req)
     {
-        if (req.RedirectUrl is not null && !IsAllowedRedirect(req.RedirectUrl))
+        if (req.ResponseType == "code")
+        {
+            if (req.RedirectUri is null || !IsAllowedRedirect(req.RedirectUri))
+                return BadRequest(new { message = "Redirect URL not allowed." });
+        }
+        else if (req.RedirectUrl is not null && !IsAllowedRedirect(req.RedirectUrl))
+        {
             return BadRequest(new { message = "Redirect URL not allowed." });
+        }
 
         if (await db.Users.AnyAsync(u => u.Email == req.Email.ToLowerInvariant()))
             return Conflict(new { message = "Email already in use." });
@@ -28,19 +40,38 @@ public class AuthController(AppDbContext db, RsaKeyService rsaKeys, IConfigurati
         db.Users.Add(user);
         await db.SaveChangesAsync();
 
+        if (req.ResponseType == "code")
+        {
+            var code = codeStore.Create(user.Id, req.RedirectUri!, req.CodeChallenge ?? "");
+            return Ok(new { code, redirectUri = req.RedirectUri, state = req.State });
+        }
+
         return Ok(new { token = CreateToken(user), user = ToDto(user), redirectUrl = req.RedirectUrl });
     }
 
     [HttpPost("login")]
     public async Task<IActionResult> Login(LoginRequest req)
     {
-        if (req.RedirectUrl is not null && !IsAllowedRedirect(req.RedirectUrl))
+        if (req.ResponseType == "code")
+        {
+            if (req.RedirectUri is null || !IsAllowedRedirect(req.RedirectUri))
+                return BadRequest(new { message = "Redirect URL not allowed." });
+        }
+        else if (req.RedirectUrl is not null && !IsAllowedRedirect(req.RedirectUrl))
+        {
             return BadRequest(new { message = "Redirect URL not allowed." });
+        }
 
         var user = await db.Users.SingleOrDefaultAsync(u => u.Email == req.Email.ToLowerInvariant());
 
         if (user is null || !VerifyPassword(req.Password, user.PasswordHash))
             return Unauthorized();
+
+        if (req.ResponseType == "code")
+        {
+            var code = codeStore.Create(user.Id, req.RedirectUri!, req.CodeChallenge ?? "");
+            return Ok(new { code, redirectUri = req.RedirectUri, state = req.State });
+        }
 
         return Ok(new { token = CreateToken(user), user = ToDto(user), redirectUrl = req.RedirectUrl });
     }
@@ -88,5 +119,5 @@ public class AuthController(AppDbContext db, RsaKeyService rsaKeys, IConfigurati
     private static object ToDto(User user) => new { user.Id, user.Name, user.Email };
 }
 
-public record RegisterRequest(string Name, string Email, string Password, string? RedirectUrl);
-public record LoginRequest(string Email, string Password, string? RedirectUrl);
+public record RegisterRequest(string Name, string Email, string Password, string? RedirectUrl, string? ResponseType, string? RedirectUri, string? State, string? CodeChallenge);
+public record LoginRequest(string Email, string Password, string? RedirectUrl, string? ResponseType, string? RedirectUri, string? State, string? CodeChallenge);

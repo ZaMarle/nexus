@@ -6,6 +6,8 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddControllers();
 builder.Services.AddOpenApi();
+builder.Services.AddMemoryCache();
+builder.Services.AddSingleton<AuthorizationCodeStore>();
 
 builder.Services.AddCors(options =>
     options.AddDefaultPolicy(policy =>
